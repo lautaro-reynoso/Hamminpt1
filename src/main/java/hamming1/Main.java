@@ -1,3 +1,5 @@
+package hamming1;
+
 import java.io.*;
 import java.util.*;
 
@@ -66,13 +68,85 @@ public class Main {
     }
 
     public static void protegerArchivo(String nombre, int bloque) {
-        System.out.println("[Proteger archivo] Tamaño bloque: " + bloque);
-        // Leer archivo, convertir a bits, aplicar Hamming, guardar .HAx
+        try {
+            File inputFile = new File(nombre);
+            FileInputStream fis = new FileInputStream(inputFile);
+            byte[] buffer = fis.readAllBytes();
+            fis.close();
+
+            String outputName = nombre.replace(".txt", ".HA1");
+            FileOutputStream fos = new FileOutputStream(outputName);
+
+            for (byte b : buffer) {
+                int[] dataBits = byteToBits(b);
+                int[] hammingBits = hammingEncode74(dataBits);
+                fos.write(bitsToByte(hammingBits));
+            }
+
+            fos.close();
+            System.out.println("Archivo protegido guardado como: " + outputName);
+
+        } catch (IOException e) {
+            System.out.println("Error al proteger archivo: " + e.getMessage());
+        }
     }
 
+    public static int[] byteToBits(byte b) {
+        int[] bits = new int[4];
+        for (int i = 0; i < 4; i++) {
+            bits[i] = (b >> (7 - i)) & 1;
+        }
+        return bits;
+    }
+
+    public static int[] hammingEncode74(int[] data) {
+        int[] hamming = new int[7];
+        hamming[2] = data[0];
+        hamming[4] = data[1];
+        hamming[5] = data[2];
+        hamming[6] = data[3];
+
+        hamming[0] = hamming[2] ^ hamming[4] ^ hamming[6];
+        hamming[1] = hamming[2] ^ hamming[5] ^ hamming[6];
+        hamming[3] = hamming[4] ^ hamming[5] ^ hamming[6];
+
+        return hamming;
+    }
+
+    public static byte bitsToByte(int[] bits) {
+        byte result = 0;
+        for (int i = 0; i < bits.length; i++) {
+            result |= (bits[i] << (7 - i));
+        }
+        return result;
+    }
+
+
     public static void introducirErrores(String archivoHa) {
-        System.out.println("[Introducir errores] en archivo: " + archivoHa);
-        // Leer .HAx, introducir errores aleatorios, guardar .HEx
+        try {
+            File inputFile = new File(archivoHa);
+            FileInputStream fis = new FileInputStream(inputFile);
+            byte[] buffer = fis.readAllBytes();
+            fis.close();
+
+            Random random = new Random();
+
+            for (int i = 0; i < buffer.length; i++) {
+                // Introduce un error en 1 bit aleatorio del byte (bit 0 a 6)
+                int bitAInvertir = random.nextInt(7); // solo 7 bits relevantes
+                buffer[i] ^= (1 << (7 - bitAInvertir));
+            }
+
+            String outputName = archivoHa.replace(".HA", ".HE");
+            FileOutputStream fos = new FileOutputStream(outputName);
+            fos.write(buffer);
+            fos.close();
+
+            System.out.println("Errores introducidos. Archivo guardado como: " + outputName);
+
+        } catch (IOException e) {
+            System.out.println("Error al introducir errores: " + e.getMessage());
+        }
     }
 
     public static void desprotegerSinCorregir(String archivo) {
