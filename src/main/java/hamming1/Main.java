@@ -63,9 +63,25 @@ public class Main {
     }
 
     public static void cargarArchivo(String nombre) {
-        System.out.println("[Cargar archivo] Funcionalidad pendiente");
-        // Leer archivo, mostrar por consola si se quiere
+        File archivo = new File(nombre);
+    
+        if (!archivo.exists()) {
+            System.out.println("El archivo no existe.");
+            return;
+        }
+    
+        try (BufferedReader br = new BufferedReader(new FileReader(archivo))) {
+            String linea;
+            System.out.println("\n--- Contenido del archivo ---");
+            while ((linea = br.readLine()) != null) {
+                System.out.println(linea);
+            }
+            System.out.println("--- Fin del archivo ---");
+        } catch (IOException e) {
+            System.out.println("Error al leer el archivo: " + e.getMessage());
+        }
     }
+    
 
     public static void protegerArchivo(String nombre, int bloque) {
         try {
@@ -73,45 +89,72 @@ public class Main {
             FileInputStream fis = new FileInputStream(inputFile);
             byte[] buffer = fis.readAllBytes();
             fis.close();
-
-            String outputName = nombre.replace(".txt", ".HA1");
+    
+            String outputName = nombre.replace(".txt", ".HA" + (bloque == 8 ? "1" : bloque == 256 ? "2" : "3"));
             FileOutputStream fos = new FileOutputStream(outputName);
-
-            for (byte b : buffer) {
-                int[] dataBits = byteToBits(b);
-                int[] hammingBits = hammingEncode74(dataBits);
-                fos.write(bitsToByte(hammingBits));
+    
+            int bytesPorBloque = bloque / 8;
+    
+            for (int i = 0; i < buffer.length; i += bytesPorBloque) {
+                int fin = Math.min(i + bytesPorBloque, buffer.length); 
+                for (int j = i; j < fin; j++) {
+                    byte b = buffer[j];
+                    int highNibble = (b >> 4) & 0x0F;
+                    int lowNibble = b & 0x0F;
+            
+                    int[] highBits = intTo4Bits(highNibble);
+                    int[] lowBits = intTo4Bits(lowNibble);
+            
+                    int[] hammingHigh = hammingEncode84(highBits);
+                    int[] hammingLow = hammingEncode84(lowBits);
+            
+                    fos.write(bitsToByte(hammingHigh));
+                    fos.write(bitsToByte(hammingLow));
+                }
             }
-
+            
+    
             fos.close();
             System.out.println("Archivo protegido guardado como: " + outputName);
-
+    
         } catch (IOException e) {
             System.out.println("Error al proteger archivo: " + e.getMessage());
         }
     }
+    
+    
 
-    public static int[] byteToBits(byte b) {
-        int[] bits = new int[4];
-        for (int i = 0; i < 4; i++) {
+    public static int[] byteToBits8(byte b) {
+        int[] bits = new int[8];
+        for (int i = 0; i < 8; i++) {
             bits[i] = (b >> (7 - i)) & 1;
         }
         return bits;
     }
+    
 
-    public static int[] hammingEncode74(int[] data) {
-        int[] hamming = new int[7];
+    public static int[] hammingEncode84(int[] data) {
+        int[] hamming = new int[8];
+    
+        // Bits de datos
         hamming[2] = data[0];
         hamming[4] = data[1];
         hamming[5] = data[2];
         hamming[6] = data[3];
-
-        hamming[0] = hamming[2] ^ hamming[4] ^ hamming[6];
-        hamming[1] = hamming[2] ^ hamming[5] ^ hamming[6];
-        hamming[3] = hamming[4] ^ hamming[5] ^ hamming[6];
-
+    
+        // Bits de paridad
+        hamming[0] = hamming[2] ^ hamming[4] ^ hamming[6]; // p1
+        hamming[1] = hamming[2] ^ hamming[5] ^ hamming[6]; // p2
+        hamming[3] = hamming[4] ^ hamming[5] ^ hamming[6]; // p3
+    
+        // Bit de paridad general (p0)
+        hamming[7] = hamming[0] ^ hamming[1] ^ hamming[2] ^ hamming[3] ^ hamming[4] ^ hamming[5] ^ hamming[6];
+    
         return hamming;
     }
+    
+    
+    
 
     public static byte bitsToByte(int[] bits) {
         byte result = 0;
@@ -120,6 +163,7 @@ public class Main {
         }
         return result;
     }
+    
 
 
     public static void introducirErrores(String archivoHa) {
@@ -128,34 +172,162 @@ public class Main {
             FileInputStream fis = new FileInputStream(inputFile);
             byte[] buffer = fis.readAllBytes();
             fis.close();
-
+    
             Random random = new Random();
-
+    
             for (int i = 0; i < buffer.length; i++) {
-                // Introduce un error en 1 bit aleatorio del byte (bit 0 a 6)
-                int bitAInvertir = random.nextInt(7); // solo 7 bits relevantes
-                buffer[i] ^= (1 << (7 - bitAInvertir));
+                // 50% de probabilidad de introducir un error en este byte
+                if (random.nextBoolean()) {
+                    int bitAInvertir = random.nextInt(7); // solo 7 bits relevantes
+                    buffer[i] ^= (1 << (7 - bitAInvertir));
+                }
             }
-
+    
             String outputName = archivoHa.replace(".HA", ".HE");
             FileOutputStream fos = new FileOutputStream(outputName);
             fos.write(buffer);
             fos.close();
-
-            System.out.println("Errores introducidos. Archivo guardado como: " + outputName);
-
+    
+            System.out.println("Errores aleatorios introducidos. Archivo guardado como: " + outputName);
+    
         } catch (IOException e) {
             System.out.println("Error al introducir errores: " + e.getMessage());
         }
     }
 
     public static void desprotegerSinCorregir(String archivo) {
-        System.out.println("[Desproteger sin corrección] archivo: " + archivo);
-        // Leer .HAx o .HEx, decodificar sin corregir, guardar .DEx
+        try {
+            File inputFile = new File(archivo);
+            FileInputStream fis = new FileInputStream(inputFile);
+            byte[] buffer = fis.readAllBytes();
+            fis.close();
+    
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    
+            for (int i = 0; i < buffer.length; i += 2) {
+                int[] bits1 = byteToBits8(buffer[i]);
+                int[] bits2 = byteToBits8(buffer[i + 1]);
+    
+                int[] data1 = extractDataBits(bits1);
+                int[] data2 = extractDataBits(bits2);
+    
+                byte original = (byte) ((bitsToInt(data1) << 4) | bitsToInt(data2));
+                baos.write(original);
+            }
+    
+            String outputName = archivo.replace(".HA", ".DE").replace(".HE", ".DE");
+            FileOutputStream fos = new FileOutputStream(outputName);
+            fos.write(baos.toByteArray());
+            fos.close();
+    
+            System.out.println("Archivo desprotegido sin corrección: " + outputName);
+        } catch (IOException e) {
+            System.out.println("Error al desproteger archivo: " + e.getMessage());
+        }
     }
+    
+    
 
     public static void desprotegerConCorreccion(String archivo) {
-        System.out.println("[Desproteger con corrección] archivo: " + archivo);
-        // Leer .HAx o .HEx, corregir errores, decodificar, guardar .DCx
+        try {
+            File inputFile = new File(archivo);
+            FileInputStream fis = new FileInputStream(inputFile);
+            byte[] buffer = fis.readAllBytes();
+            fis.close();
+    
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    
+            for (int i = 0; i < buffer.length; i += 2) {
+                int[] bits1 = byteToBits8(buffer[i]);
+                int[] bits2 = byteToBits8(buffer[i + 1]);
+    
+                correctHamming84(bits1);
+                correctHamming84(bits2);
+    
+                int[] data1 = extractDataBits(bits1);
+                int[] data2 = extractDataBits(bits2);
+    
+                byte original = (byte) ((bitsToInt(data1) << 4) | bitsToInt(data2));
+                baos.write(original);
+            }
+    
+            String outputName = archivo.replace(".HA", ".DC").replace(".HE", ".DC");
+            FileOutputStream fos = new FileOutputStream(outputName);
+            fos.write(baos.toByteArray());
+            fos.close();
+    
+            System.out.println("Archivo desprotegido con corrección: " + outputName);
+        } catch (IOException e) {
+            System.out.println("Error al desproteger archivo: " + e.getMessage());
+        }
     }
+    
+    
+    public static int[] intTo4Bits(int n) {
+        int[] bits = new int[4];
+        for (int i = 0; i < 4; i++) {
+            bits[i] = (n >> (3 - i)) & 1;
+        }
+        return bits;
+    }
+    
+    public static int bitsToInt(int[] bits) {
+        int result = 0;
+        for (int i = 0; i < bits.length; i++) {
+            result |= (bits[i] << (bits.length - 1 - i));
+        }
+        return result;
+    }
+    
+    public static int[] byteToBits7(byte b) {
+        int[] bits = new int[7];
+        for (int i = 0; i < 7; i++) {
+            bits[i] = (b >> (7 - i)) & 1;
+        }
+        return bits;
+    }
+
+    public static int[] extractDataBits(int[] bits) {
+        return new int[] { bits[2], bits[4], bits[5], bits[6] };
+    }
+
+    public static byte pack4Bits(int[] bits) {
+        byte result = 0;
+        for (int i = 0; i < 4; i++) {
+            result |= (bits[i] << (7 - i));
+        }
+        return result;
+    }
+
+    public static void correctHamming84(int[] bits) {
+        int p0 = bits[7]; // paridad general
+        int p1 = bits[0];
+        int p2 = bits[1];
+        int d1 = bits[2];
+        int p3 = bits[3];
+        int d2 = bits[4];
+        int d3 = bits[5];
+        int d4 = bits[6];
+    
+        int c1 = p1 ^ d1 ^ d2 ^ d4;
+        int c2 = p2 ^ d1 ^ d3 ^ d4;
+        int c3 = p3 ^ d2 ^ d3 ^ d4;
+        int c0 = p0 ^ p1 ^ p2 ^ d1 ^ p3 ^ d2 ^ d3 ^ d4;
+    
+        int errorPos = (c3 << 2) | (c2 << 1) | c1;
+    
+        if (c0 == 1 && errorPos == 0) {
+            // Error en el bit de paridad general
+            bits[7] ^= 1;
+        } else if (errorPos > 0 && errorPos <= 7) {
+            // Error en los otros bits
+            bits[errorPos - 1] ^= 1;
+        }
+    }
+    
+    
+    
+    
+    
+    
 }
